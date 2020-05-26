@@ -5,7 +5,7 @@ import numpy as np
 import struct
 import sys
 from netCDF4 import Dataset
-
+from pyproj import Proj
 
 ## Constants
 NaN = float('nan')
@@ -14,6 +14,9 @@ boltz_c = 1.38064852E-23   # Boltzmann constant [J/K]
 light_speed = 2.99792458E+8 # Speed of light in vacuum [m/s]
 c1 = 2 * planck_c * (light_speed) ** 2
 c2 = (planck_c * light_speed) / boltz_c
+sub_lon = 128.2
+degtorad = 3.14159265358979 / 180.0
+
 
 ## Calibration Table v3.0
 lamda_vis = [0.47020000, 0.50860000, 0.63940000, \
@@ -133,7 +136,8 @@ class level1b:
         if(ich < 6): # for VIS and N-IR channels (ch 01 ~ 06)
             alb = rad * r_to_a_vis[ich] * 100
             print('             Albedo Range: ', np.nanmin(alb), ' to ', np.nanmax(alb))
-
+          
+            tbb = alb
         else:        # for IR channels (ch 07 ~ 16)
             i = ich - 6
             real_temp_eff = (c2 * (wavenum_ir[i] * 100.) / (np.log( (c1 * (wavenum_ir[i] * 100.)**3) / (rad * 1.E-5) + 1.)) )
@@ -167,6 +171,26 @@ class level1b:
         print('--------------------------------------------------------------')
         return alb_tbb
 ##=============================================================================
+
+
+
+class level2:
+##=============================================================================
+    def read_cld(ncfile):
+
+        print('--------------------------------------------------------------')
+        print('GK2A AMI L2 file open: ', ncfile)
+        print()
+
+        nc_obj = Dataset(ncfile, mode='r')
+        var_name = 'CLD'
+
+        cld = nc_obj.variables[var_name][:,:]
+
+        return cld
+##=============================================================================
+
+
 
 
 
@@ -296,76 +320,113 @@ class read_lonlat:
 
 class calc_lonlat:
 ##=============================================================================
-    def get_lonlat_parameter(resolution):
+    def get_lonlat_parameter(region, resolution):
 
-        if(resolution == '500m'):
-            COFF=11000.5
-            CFAC=81701355.6133574
-            LOFF=11000.5
-            LFAC=81701355.6133574           
+        if(region == 'fd'):
+            if(resolution == '500m'):
+                COFF = 11000.5
+                CFAC = 81701355.6133574
+                LOFF = 11000.5
+                LFAC = 81701355.6133574           
 
-        elif(resolution == '1km'):
-            COFF=5500.5
-            CFAC=40850677.8066787
-            LOFF=5500.5
-            LFAC=40850677.8066787
+            elif(resolution == '1km'):
+                COFF = 5500.5
+                CFAC = 40850677.8066787
+                LOFF = 5500.5
+                LFAC = 40850677.8066787
  
-        elif(resolution == '2km'):
-            COFF=2750.5
-            CFAC=20425338.9033393
-            LOFF=2750.5
-            LFAC=20425338.9033393
+            elif(resolution == '2km'):
+                COFF = 2750.5
+                CFAC = 20425338.9033393
+                LOFF = 2750.5
+                LFAC = 20425338.9033393
 
-        else:
-            print(' Resolution not matched Check! [e.g., Resolution = 500m, 1km, 2km]')
-            print('    Resolution:',resolution)
+            else:
+                print(' Resolution not matched. Check! [e.g., Resolution = 500m, 1km, 2km]')
+                print('    Resolution:',resolution)
+                sys.exit()
+
+            parameter = [COFF, CFAC, LOFF, LFAC]                
+
+        elif(region == 'ea'):
+            if(resolution == '500m'):
+                x0 = -2999750
+                y0 = 2599750
+                res = 500.
+
+            elif(resolution == '1km'):
+                x0 = -2999500
+                y0 = 2599500
+                res = 1000.
+
+            elif(resolution == '2km'):                
+                x0 = -2999000
+                y0 = 2599000
+                res = 2000.
+
+            parameter = [x0, y0, res]
+
+        elif(region == 'ko'):
+            if(resolution == '500m'):
+                x0 = -899750
+                y0 = 899750
+                res = 500.
+
+            elif(resolution == '1km'):
+                x0 = -899500
+                y0 = 899500
+                res = 1000.
+
+            elif(resolution == '2km'):
+                x0 = -899000
+                y0 = 899000
+                res = 2000.
+
+            parameter = [x0, y0, res]
+
+        else: 
+            print(' Region not matched. Check! [e.g., Region = fd, ea, ko]')
+            print('    Region:',region)
             sys.exit()
 
-        parameter = [COFF, CFAC, LOFF, LFAC]
 
         return parameter
 ##=============================================================================
 
 
-##=============================================================================
-    def lonlat_to_colline(resolution, longitude, latitude):
-        sub_lon = 128.2
-        degtorad = 3.14159265358979 / 180.0
 
-        map_parameter = calc_lonlat.get_lonlat_parameter(resolution)
+##=============================================================================
+    def fd_colline_to_lonlat(map_parameter, lon, lat):
 
         COFF = map_parameter[0]
         CFAC = map_parameter[1]
         LOFF = map_parameter[2]
         LFAC = map_parameter[3]
-       
-        sub_lon = sub_lon * degtorad
-        latitude = latitude * degtorad
-        longitude = longitude * degtorad
 
-        c_lat = np.arctan(0.993305616 * np.tan(latitude))
+        sub_lon = sub_lon * degtorad
+        lat = lat * degtorad
+        lon = lon * degtorad
+
+        c_lat = np.arctan(0.993305616 * np.tan(lat))
         RL = 6356.7523 / np.sqrt( 1.0 - 0.00669438444 * np.cos(c_lat)**2.0 )
-        R1 = 42164.0 - RL * np.cos(c_lat) * np.cos(longitude - sub_lon)
-        R2 = -RL * np.cos(c_lat) * np.sin(longitude - sub_lon)
+        R1 = 42164.0 - RL * np.cos(c_lat) * np.cos(lon - sub_lon)
+        R2 = -RL * np.cos(c_lat) * np.sin(lon - sub_lon)
         R3 = RL * np.sin(c_lat)
         Rn = np.sqrt(R1 ** 2.0 + R2 ** 2.0 + R3 ** 2.0 )
-        x = np.arctan(-R2 / R1) / degtorad 
+        x = np.arctan(-R2 / R1) / degtorad
         y = np.arcsin(-R3 / Rn) / degtorad
 
-        column = COFF + (x * 2.0 ** (-16) * CFAC) 
-        line = LOFF + (y * 2.0 ** (-16) * LFAC)
+        col = COFF + (x * 2.0 ** (-16) * CFAC)
+        lin = LOFF + (y * 2.0 ** (-16) * LFAC)        
 
-        return column, line
+        return col, lin
 ##=============================================================================
 
 
-##=============================================================================
-    def colline_to_lonlat(resolution, column, line):
-        sub_lon = 128.2
-        degtorad = 3.14159265358979 / 180.0
 
-        map_parameter = calc_lonlat.get_lonlat_parameter(resolution)
- 
+##=============================================================================
+    def fd_lonlat_to_colline(map_parameter, col, lin):
+
         COFF = map_parameter[0]
         CFAC = map_parameter[1]
         LOFF = map_parameter[2]
@@ -373,21 +434,99 @@ class calc_lonlat:
 
         sub_lon = sub_lon * degtorad
 
-        x = degtorad *( (column - COFF) * 2 ** 16 / CFAC )
-        y = degtorad *( (line - LOFF) * 2 ** 16 / LFAC )
+        x = degtorad *( (col - COFF) * 2 ** 16 / CFAC )
+        y = degtorad *( (lin - LOFF) * 2 ** 16 / LFAC )
 
-        Sd = np.sqrt( (42164.0 * np.cos(x) * np.cos(y)) ** 2 
+        Sd = np.sqrt( (42164.0 * np.cos(x) * np.cos(y)) ** 2
                     - (np.cos(y) ** 2 + 1.006739501 * np.sin(y) ** 2) * 1737122264.)
-        Sn = ( (42164.0 * np.cos(x) * np.cos(y) - Sd) 
+        Sn = ( (42164.0 * np.cos(x) * np.cos(y) - Sd)
              / (np.cos(y) ** 2 + 1.006739501 * np.sin(y) ** 2) )
 
         S1 = 42164.0 - ( Sn * np.cos(x) * np.cos(y) )
         S2 = Sn * ( np.sin(x) * np.cos(y) )
         S3 = -Sn * np.sin(y)
         Sxy = np.sqrt( ((S1 * S1) + (S2 * S2)) )
+
+        lon = (np.arctan(S2/S1) + sub_lon) / degtorad
+        lat = np.arctan( ( 1.006739501 * S3) / Sxy) / degtorad
+
+        return lon, lat
+##=============================================================================
+
+
+
+##=============================================================================
+    def eako_lonlat_to_colline(map_parameter, eako_Proj, lon, lat):
+        x0 = map_parameter[0]
+        y0 = map_parameter[1]
+        res = map_parameter[2]
+
+        col, lin = eako_Proj(lon, lat)
+        col = (col - x0) / res
+        lin = (y0 - lin) / res
+
+        return col, lin
+##=============================================================================
+
+
+
+##=============================================================================
+    def eako_colline_to_lonlat(map_parameter, eako_Proj, col, lin):
+        x0 = map_parameter[0]
+        y0 = map_parameter[1]
+        res = map_parameter[2]
         
-        longitude = (np.arctan(S2/S1) + sub_lon) / degtorad
-        latitude = np.arctan( ( 1.006739501 * S3) / Sxy) / degtorad
+        lon, lat = eako_Proj((x0 + (col * res)), (y0 - (lin * res)), inverse=True)
+
+        return lon, lat
+##=============================================================================
+
+
+
+##=============================================================================
+    def lonlat_to_colline(region, resolution, longitude, latitude):
+
+        map_parameter = calc_lonlat.get_lonlat_parameter(region, resolution)
+        myProj = Proj("+proj=lcc +lat_1=30 +lat_2=60 +lat_0=38 +lon_0=126 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs")
+
+        if(region == 'fd'):
+            column, line = calc_lonlat.fd_colline_to_lonlat(map_parameter, longitude, latitude)
+
+        elif(region == 'ea'):
+            column, line = calc_lonlat.eako_colline_to_lonlat(map_parameter, myProj, longitude, latitude)
+
+        elif(region == 'ko'):
+            column, line = calc_lonlat.eako_colline_to_lonlat(map_parameter, myProj, longitude, latitude)
+
+        else:
+            print(' Region not matched. Check! [e.g., Region = fd, ea, ko]')
+            print('    Region:',region)
+            sys.exit()
+
+        return column, line
+##=============================================================================
+
+
+
+##=============================================================================
+    def colline_to_lonlat(region, resolution, column, line):
+
+        map_parameter = calc_lonlat.get_lonlat_parameter(region, resolution)
+        myProj = Proj("+proj=lcc +lat_1=30 +lat_2=60 +lat_0=38 +lon_0=126 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs")
+
+        if(region == 'fd'):
+            longitude, latitude = calc_lonlat.fd_colline_to_lonlat(map_parameter, column, line)
+
+        elif(region == 'ea'):
+            longitude, latitude = calc_lonlat.eako_colline_to_lonlat(map_parameter, myProj, column, line)
+
+        elif(region == 'ko'):
+            longitude, latitude = calc_lonlat.eako_colline_to_lonlat(map_parameter, myProj, column, line)
+
+        else:
+            print(' Region not matched. Check! [e.g., Region = fd, ea, ko]')
+            print('    Region:',region)
+            sys.exit()
 
         return longitude, latitude
 ##=============================================================================
